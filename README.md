@@ -41,18 +41,39 @@ docs/chats/      - Dev session logs
 
 ## Roadmap
 
-- [x] Terminal dashboard with live metrics
-- [x] Health detection + trend arrows
-- [x] vLLM metrics scraper (Prometheus parser)
-- [x] SQLite history storage
-- [ ] Time-series view
-- [ ] Automated tuning recommendations
+### Done
+
+- [x] Terminal dashboard with live metrics, trend arrows, health status
+- [x] vLLM metrics scraper (Prometheus text parser + HTTP collector)
+- [x] Fake vLLM server for end-to-end testing without a GPU
+- [x] SQLite storage for metrics history
+
+### Next up -- real hardware validation
+
+- [ ] Test on real GPU with WSL2 (Llama 3 8B on NVIDIA laptop)
+- [ ] Add NVML integration (`pynvml`) for GPU utilization, VRAM, temperature
+- [ ] Validate Prometheus parser against actual vLLM output (not just fake server)
+
+### Then -- insight engine
+
+The jump from "here are your numbers" to "here's what to do about them."
+
+- [ ] First automated recommendation (e.g., "batch utilization is 69% with no queue -- increase max_num_seqs")
+- [ ] KV cache pressure alerts with suggested actions
+- [ ] Config diff: show what a change would do before applying it
+- [ ] Before/after snapshots so users can measure impact of a change
+
+### Later -- community and multi-backend
+
+- [ ] Docker compose for one-command setup
+- [ ] Support TGI or Triton as a second backend
+- [ ] Time-series view of historical metrics
 - [ ] OpenTelemetry integration
-- [ ] Multi-backend support (Triton, TensorRT-LLM)
+- [ ] Slack/webhook alerts
 
 ## Requirements
 
-Python 3.9+. No GPU needed for development.
+Python 3.9+. No GPU needed for development -- mock data and fake server cover the full pipeline.
 
 ## License
 
