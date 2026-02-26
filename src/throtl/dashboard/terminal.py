@@ -2,10 +2,14 @@
 Terminal dashboard for Throtl.
 
 Displays a live-updating view of inference metrics using Rich.
-Nothing fancy -- just the numbers that matter, refreshed every 2 seconds.
+Includes trend arrows, a health verdict, and batch utilization.
 """
 
+from __future__ import annotations
+
 import time
+from collections import deque
+from typing import Optional
 
 from rich.console import Console
 from rich.live import Live
@@ -16,6 +20,9 @@ from rich.text import Text
 
 from src.throtl.collector.base import MetricsCollector
 from src.throtl.metrics import InferenceSnapshot
+
+
+HISTORY_SIZE = 30
 
 
 def _color_for_percent(value: float) -> str:
@@ -35,24 +42,118 @@ def _color_for_latency_ms(value_ms: float, threshold_ms: float = 200) -> str:
     return "red"
 
 
-def build_display(snapshot: InferenceSnapshot, source_name: str) -> Layout:
-    """Build the full terminal display from a single snapshot."""
+def _trend_arrow(current: float, previous: float, better_when: str = "lower") -> str:
+    """
+    Compare current to a previous value and return a colored arrow.
+    'better_when' controls which direction is good (green) vs bad (red).
+    """
+    if previous == 0:
+        return ""
+
+    pct_change = (current - previous) / abs(previous)
+    threshold = 0.03  # ignore noise below 3%
+
+    if abs(pct_change) < threshold:
+        return "[dim]-[/dim]"
+
+    going_up = pct_change > 0
+
+    if better_when == "lower":
+        color = "red" if going_up else "green"
+    else:
+        color = "green" if going_up else "red"
+
+    arrow = "^" if going_up else "v"
+    return f"[{color}]{arrow}[/{color}]"
+
+
+def _evaluate_health(snapshot: InferenceSnapshot) -> tuple[str, str]:
+    """
+    Return a (status_text, style) based on the current snapshot.
+    Checks a few key signals and reports the most urgent one.
+    """
+    problems = []
+
+    if snapshot.gpu_cache_usage_percent > 0.92:
+        problems.append("KV CACHE NEAR FULL")
+    elif snapshot.gpu_cache_usage_percent > 0.80:
+        problems.append("KV CACHE PRESSURE")
+
+    if snapshot.requests_waiting > 10:
+        problems.append("REQUEST QUEUE BACKUP")
+    elif snapshot.requests_waiting > 5:
+        problems.append("QUEUE BUILDING")
+
+    ttft_p95_ms = snapshot.time_to_first_token_p95 * 1000
+    if ttft_p95_ms > 500:
+        problems.append("HIGH TTFT LATENCY")
+    elif ttft_p95_ms > 250:
+        problems.append("ELEVATED TTFT")
+
+    if snapshot.gpu_utilization_percent < 0.25:
+        problems.append("GPU UNDERUTILIZED")
+
+    batch_util = snapshot.avg_batch_size / max(1, snapshot.max_batch_size)
+    if batch_util < 0.25:
+        problems.append("LOW BATCH UTILIZATION")
+
+    if not problems:
+        return "HEALTHY", "bold green"
+
+    severity = "bold yellow" if len(problems) == 1 else "bold red"
+    return " | ".join(problems), severity
+
+
+def _get_lookback(history: deque, steps_back: int = 5) -> Optional[InferenceSnapshot]:
+    """Get a snapshot from N steps ago for trend comparison."""
+    if len(history) > steps_back:
+        return history[-(steps_back + 1)]
+    elif len(history) > 1:
+        return history[0]
+    return None
+
+
+def build_display(
+    snapshot: InferenceSnapshot,
+    source_name: str,
+    history: deque,
+) -> Layout:
+    """Build the full terminal display from a snapshot and recent history."""
 
     layout = Layout()
+    prev = _get_lookback(history)
 
-    # Header
+    # Health verdict
+    status_text, status_style = _evaluate_health(snapshot)
     header = Text(f"  throtl  |  {source_name}", style="bold white on blue")
-    header.append(f"\n  {snapshot.timestamp.strftime('%Y-%m-%d %H:%M:%S')}", style="dim")
+    header.append(f"\n  {snapshot.timestamp.strftime('%Y-%m-%d %H:%M:%S')}  ", style="dim")
+    header.append(f"  STATUS: {status_text}", style=status_style)
 
     # Request stats
     req_table = Table(show_header=True, header_style="bold cyan", expand=True)
     req_table.add_column("Metric", style="dim")
     req_table.add_column("Value", justify="right")
-    req_table.add_row("Running", str(snapshot.requests_running))
-    req_table.add_row("Waiting", f"[{'red' if snapshot.requests_waiting > 5 else 'green'}]{snapshot.requests_waiting}[/]")
-    req_table.add_row("Completed (total)", f"{snapshot.requests_completed:,}")
-    req_table.add_row("Tokens/sec", f"[bold]{snapshot.tokens_per_second:.1f}[/bold]")
-    req_table.add_row("Avg batch size", f"{snapshot.avg_batch_size:.1f} / {snapshot.max_batch_size}")
+    req_table.add_column("", width=2)
+
+    tps_trend = _trend_arrow(snapshot.tokens_per_second, prev.tokens_per_second, "higher") if prev else ""
+    wait_trend = _trend_arrow(snapshot.requests_waiting, prev.requests_waiting, "lower") if prev else ""
+
+    req_table.add_row("Running", str(snapshot.requests_running), "")
+    req_table.add_row(
+        "Waiting",
+        f"[{'red' if snapshot.requests_waiting > 5 else 'green'}]{snapshot.requests_waiting}[/]",
+        wait_trend,
+    )
+    req_table.add_row("Completed (total)", f"{snapshot.requests_completed:,}", "")
+    req_table.add_row("Tokens/sec", f"[bold]{snapshot.tokens_per_second:.1f}[/bold]", tps_trend)
+
+    batch_util = snapshot.avg_batch_size / max(1, snapshot.max_batch_size)
+    batch_color = "green" if batch_util > 0.6 else ("yellow" if batch_util > 0.3 else "red")
+    req_table.add_row(
+        "Batch utilization",
+        f"[{batch_color}]{batch_util * 100:.0f}%[/{batch_color}]  ({snapshot.avg_batch_size:.0f}/{snapshot.max_batch_size})",
+        "",
+    )
 
     # Latency stats
     lat_table = Table(show_header=True, header_style="bold cyan", expand=True)
@@ -60,6 +161,7 @@ def build_display(snapshot: InferenceSnapshot, source_name: str) -> Layout:
     lat_table.add_column("p50", justify="right")
     lat_table.add_column("p95", justify="right")
     lat_table.add_column("p99", justify="right")
+    lat_table.add_column("", width=2)
 
     ttft_p50_ms = snapshot.time_to_first_token_p50 * 1000
     ttft_p95_ms = snapshot.time_to_first_token_p95 * 1000
@@ -68,31 +170,56 @@ def build_display(snapshot: InferenceSnapshot, source_name: str) -> Layout:
     tbt_p95_ms = snapshot.time_per_output_token_p95 * 1000
     tbt_p99_ms = snapshot.time_per_output_token_p99 * 1000
 
+    ttft_trend = _trend_arrow(ttft_p95_ms, prev.time_to_first_token_p95 * 1000, "lower") if prev else ""
+    tbt_trend = _trend_arrow(tbt_p95_ms, prev.time_per_output_token_p95 * 1000, "lower") if prev else ""
+
     lat_table.add_row(
         "Time to first token",
         f"[{_color_for_latency_ms(ttft_p50_ms)}]{ttft_p50_ms:.1f}ms[/]",
         f"[{_color_for_latency_ms(ttft_p95_ms)}]{ttft_p95_ms:.1f}ms[/]",
         f"[{_color_for_latency_ms(ttft_p99_ms)}]{ttft_p99_ms:.1f}ms[/]",
+        ttft_trend,
     )
     lat_table.add_row(
         "Time per output token",
         f"[{_color_for_latency_ms(tbt_p50_ms, 50)}]{tbt_p50_ms:.1f}ms[/]",
         f"[{_color_for_latency_ms(tbt_p95_ms, 50)}]{tbt_p95_ms:.1f}ms[/]",
         f"[{_color_for_latency_ms(tbt_p99_ms, 50)}]{tbt_p99_ms:.1f}ms[/]",
+        tbt_trend,
     )
 
     # GPU stats
     gpu_table = Table(show_header=True, header_style="bold cyan", expand=True)
     gpu_table.add_column("GPU", style="dim")
     gpu_table.add_column("Value", justify="right")
+    gpu_table.add_column("", width=2)
 
     cache_color = _color_for_percent(snapshot.gpu_cache_usage_percent)
     util_color = _color_for_percent(snapshot.gpu_utilization_percent)
 
-    gpu_table.add_row("KV Cache usage", f"[{cache_color}]{snapshot.gpu_cache_usage_percent * 100:.1f}%[/]")
-    gpu_table.add_row("GPU utilization", f"[{util_color}]{snapshot.gpu_utilization_percent * 100:.1f}%[/]")
-    gpu_table.add_row("VRAM", f"{snapshot.gpu_memory_used_gb:.1f} / {snapshot.gpu_memory_total_gb:.1f} GB")
-    gpu_table.add_row("Cost per 1K tokens", f"${snapshot.estimated_cost_per_1k_tokens:.4f}")
+    cache_trend = _trend_arrow(snapshot.gpu_cache_usage_percent, prev.gpu_cache_usage_percent, "lower") if prev else ""
+    cost_trend = _trend_arrow(snapshot.estimated_cost_per_1k_tokens, prev.estimated_cost_per_1k_tokens, "lower") if prev else ""
+
+    gpu_table.add_row(
+        "KV Cache usage",
+        f"[{cache_color}]{snapshot.gpu_cache_usage_percent * 100:.1f}%[/]",
+        cache_trend,
+    )
+    gpu_table.add_row(
+        "GPU utilization",
+        f"[{util_color}]{snapshot.gpu_utilization_percent * 100:.1f}%[/]",
+        "",
+    )
+    gpu_table.add_row(
+        "VRAM",
+        f"{snapshot.gpu_memory_used_gb:.1f} / {snapshot.gpu_memory_total_gb:.1f} GB",
+        "",
+    )
+    gpu_table.add_row(
+        "Cost per 1K tokens",
+        f"${snapshot.estimated_cost_per_1k_tokens:.4f}",
+        cost_trend,
+    )
 
     # Assemble layout
     layout.split_column(
@@ -115,6 +242,7 @@ def run_dashboard(collector: MetricsCollector, refresh_interval: float = 2.0):
 
     console = Console()
     source_name = collector.name()
+    history: deque[InferenceSnapshot] = deque(maxlen=HISTORY_SIZE)
 
     console.print(f"\n[bold]Starting Throtl dashboard...[/bold]")
     console.print(f"Source: {source_name}")
@@ -125,7 +253,8 @@ def run_dashboard(collector: MetricsCollector, refresh_interval: float = 2.0):
         try:
             while True:
                 snapshot = collector.collect()
-                display = build_display(snapshot, source_name)
+                history.append(snapshot)
+                display = build_display(snapshot, source_name, history)
                 live.update(display)
                 time.sleep(refresh_interval)
         except KeyboardInterrupt:

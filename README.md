@@ -12,7 +12,13 @@ The long-term goal is closed-loop optimization: not just showing you the problem
 
 ## Current status
 
-Early development. We're building the metrics collection and visualization layer first.
+Early development. The terminal dashboard monitors a vLLM instance (mock data for now, real integration coming) and shows:
+
+- **Request throughput** -- running, queued, tokens/sec, batch utilization
+- **Latency percentiles** -- time to first token and time per output token at p50/p95/p99
+- **GPU health** -- KV cache pressure, utilization, VRAM, cost per 1K tokens
+- **Trend arrows** -- each key metric shows whether it's improving or degrading
+- **Health verdict** -- a single status line (HEALTHY, KV CACHE PRESSURE, QUEUE BUILDING, etc.) so you can glance and know if something needs attention
 
 ## Project structure
 
@@ -41,7 +47,7 @@ python -m src.throtl.main --mock
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.9+
 - No GPU required for development (mock mode)
 
 ## License
