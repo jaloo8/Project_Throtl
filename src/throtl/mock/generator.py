@@ -2,8 +2,8 @@
 Mock vLLM metrics generator.
 
 Produces fake but realistic metrics so we can develop and test without
-a GPU. Numbers are loosely based on Llama 3 8B on a single RTX 4090
-under moderate traffic.
+a GPU. Numbers are loosely based on Llama 3 8B under moderate traffic
+with a 24GB GPU.
 """
 
 import math

@@ -92,7 +92,7 @@ class VLLMCollector(MetricsCollector):
             time_per_output_token_p95=tbt_p95,
             time_per_output_token_p99=tbt_p99,
             gpu_cache_usage_percent=cache_usage,
-            gpu_memory_used_gb=0,  # needs NVML, not available from /metrics
+            gpu_memory_used_gb=0,  # not available from /metrics, needs NVML
             gpu_memory_total_gb=0,
             gpu_utilization_percent=0,
             avg_batch_size=avg_batch_size,

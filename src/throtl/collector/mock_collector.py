@@ -14,4 +14,4 @@ class MockCollector(MetricsCollector):
         return self._server.snapshot()
 
     def name(self) -> str:
-        return "Mock vLLM (Llama 3 8B on simulated RTX 4090)"
+        return "Mock vLLM (Llama 3 8B, simulated)"
