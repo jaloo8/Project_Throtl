@@ -14,7 +14,7 @@ layers and eventually tunes them.
 
 - `InferenceSnapshot` dataclass holding everything we care about (requests, tokens/sec,
   latency percentiles, GPU cache/memory/util, cost)
-- Mock generator simulating Llama 3 8B on RTX 4090 with realistic traffic patterns
+- Mock generator simulating Llama 3 8B under moderate traffic with realistic patterns
 - `MetricsCollector` interface so the dashboard doesn't care where data comes from
 - Terminal dashboard (Rich) with three panels: requests, latency, GPU/cost
 - CLI with `--mock` and `--refresh` flags

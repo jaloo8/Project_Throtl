@@ -68,7 +68,7 @@ class VLLMCollector(MetricsCollector):
 
         # vLLM doesn't expose batch size or GPU utilization directly --
         # we estimate batch from running requests and leave GPU util at 0
-        # until we add nvidia-smi / NVML integration.
+        # until we add NVML integration.
         avg_batch_size = float(requests_running)
         # Rough max batch size guess -- will be configurable later
         max_batch_size = 16

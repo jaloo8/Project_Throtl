@@ -50,7 +50,7 @@ docs/chats/      - Dev session logs
 
 ### Next up -- real hardware validation
 
-- [ ] Test on real GPU with WSL2 (Llama 3 8B on NVIDIA laptop)
+- [ ] Test on a real GPU with vLLM serving Llama 3 8B
 - [ ] Add NVML integration (`pynvml`) for GPU utilization, VRAM, temperature
 - [ ] Validate Prometheus parser against actual vLLM output (not just fake server)
 
