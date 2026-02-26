@@ -1,9 +1,4 @@
-"""
-Terminal dashboard for Throtl.
-
-Displays a live-updating view of inference metrics using Rich.
-Includes trend arrows, a health verdict, and batch utilization.
-"""
+"""Terminal dashboard using Rich. Shows metrics, trend arrows, and health status."""
 
 from __future__ import annotations
 
@@ -20,13 +15,14 @@ from rich.text import Text
 
 from src.throtl.collector.base import MetricsCollector
 from src.throtl.metrics import InferenceSnapshot
+from src.throtl.storage.sqlite_store import MetricsStore
 
 
+# How many snapshots to keep for trend comparison
 HISTORY_SIZE = 30
 
 
 def _color_for_percent(value: float) -> str:
-    """Green when low, yellow when moderate, red when high."""
     if value < 0.5:
         return "green"
     elif value < 0.8:
@@ -43,10 +39,7 @@ def _color_for_latency_ms(value_ms: float, threshold_ms: float = 200) -> str:
 
 
 def _trend_arrow(current: float, previous: float, better_when: str = "lower") -> str:
-    """
-    Compare current to a previous value and return a colored arrow.
-    'better_when' controls which direction is good (green) vs bad (red).
-    """
+    """Returns a colored ^ or v arrow. Green = improving, red = degrading."""
     if previous == 0:
         return ""
 
@@ -68,10 +61,7 @@ def _trend_arrow(current: float, previous: float, better_when: str = "lower") ->
 
 
 def _evaluate_health(snapshot: InferenceSnapshot) -> tuple[str, str]:
-    """
-    Return a (status_text, style) based on the current snapshot.
-    Checks a few key signals and reports the most urgent one.
-    """
+    """Check key signals and return (status_text, rich_style) for the header."""
     problems = []
 
     if snapshot.gpu_cache_usage_percent > 0.92:
@@ -105,7 +95,7 @@ def _evaluate_health(snapshot: InferenceSnapshot) -> tuple[str, str]:
 
 
 def _get_lookback(history: deque, steps_back: int = 5) -> Optional[InferenceSnapshot]:
-    """Get a snapshot from N steps ago for trend comparison."""
+    """Grab a snapshot from N steps ago for trend comparison."""
     if len(history) > steps_back:
         return history[-(steps_back + 1)]
     elif len(history) > 1:
@@ -118,18 +108,16 @@ def build_display(
     source_name: str,
     history: deque,
 ) -> Layout:
-    """Build the full terminal display from a snapshot and recent history."""
 
     layout = Layout()
     prev = _get_lookback(history)
 
-    # Health verdict
     status_text, status_style = _evaluate_health(snapshot)
     header = Text(f"  throtl  |  {source_name}", style="bold white on blue")
     header.append(f"\n  {snapshot.timestamp.strftime('%Y-%m-%d %H:%M:%S')}  ", style="dim")
     header.append(f"  STATUS: {status_text}", style=status_style)
 
-    # Request stats
+    # -- Requests panel --
     req_table = Table(show_header=True, header_style="bold cyan", expand=True)
     req_table.add_column("Metric", style="dim")
     req_table.add_column("Value", justify="right")
@@ -155,7 +143,7 @@ def build_display(
         "",
     )
 
-    # Latency stats
+    # -- Latency panel --
     lat_table = Table(show_header=True, header_style="bold cyan", expand=True)
     lat_table.add_column("Latency", style="dim")
     lat_table.add_column("p50", justify="right")
@@ -188,7 +176,7 @@ def build_display(
         tbt_trend,
     )
 
-    # GPU stats
+    # -- GPU & cost panel --
     gpu_table = Table(show_header=True, header_style="bold cyan", expand=True)
     gpu_table.add_column("GPU", style="dim")
     gpu_table.add_column("Value", justify="right")
@@ -221,7 +209,6 @@ def build_display(
         cost_trend,
     )
 
-    # Assemble layout
     layout.split_column(
         Layout(Panel(header, border_style="blue"), size=4),
         Layout(name="body"),
@@ -237,8 +224,11 @@ def build_display(
     return layout
 
 
-def run_dashboard(collector: MetricsCollector, refresh_interval: float = 2.0):
-    """Run the live terminal dashboard. Blocks until Ctrl+C."""
+def run_dashboard(
+    collector: MetricsCollector,
+    refresh_interval: float = 2.0,
+    store: Optional[MetricsStore] = None,
+):
 
     console = Console()
     source_name = collector.name()
@@ -246,7 +236,10 @@ def run_dashboard(collector: MetricsCollector, refresh_interval: float = 2.0):
 
     console.print(f"\n[bold]Starting Throtl dashboard...[/bold]")
     console.print(f"Source: {source_name}")
-    console.print(f"Refresh: every {refresh_interval}s\n")
+    console.print(f"Refresh: every {refresh_interval}s")
+    if store:
+        console.print(f"Storage: SQLite (recording history)")
+    console.print()
     time.sleep(1)
 
     with Live(console=console, refresh_per_second=1, screen=True) as live:
@@ -254,10 +247,16 @@ def run_dashboard(collector: MetricsCollector, refresh_interval: float = 2.0):
             while True:
                 snapshot = collector.collect()
                 history.append(snapshot)
+                if store:
+                    store.save(snapshot)
                 display = build_display(snapshot, source_name, history)
                 live.update(display)
                 time.sleep(refresh_interval)
         except KeyboardInterrupt:
             pass
 
-    console.print("\n[dim]Dashboard stopped.[/dim]")
+    if store:
+        count = store.count()
+        console.print(f"\n[dim]Dashboard stopped. {count} snapshots recorded.[/dim]")
+    else:
+        console.print("\n[dim]Dashboard stopped.[/dim]")

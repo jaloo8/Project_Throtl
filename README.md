@@ -1,54 +1,58 @@
 # Throtl
 
-A performance monitoring and optimization tool for LLM inference servers.
+Performance monitoring for LLM inference servers. Connects to vLLM, collects metrics from both the serving layer and GPU, and shows you what's actually happening -- cost per token, batch utilization, cache pressure, latency percentiles.
 
-Built by a GPU performance engineer who got tired of seeing inference clusters run at 40% utilization.
+Eventually this will do closed-loop optimization (auto-tuning configs), but right now it's focused on visibility.
 
-## What it does
+## What it shows
 
-Throtl connects to LLM serving engines (starting with vLLM), collects performance metrics from both the serving layer and the GPU, and shows you exactly where you're wasting money -- cost per token, batch utilization, cache efficiency, latency breakdowns.
+- Request throughput, queue depth, tokens/sec
+- TTFT and TBT latency at p50/p95/p99
+- KV cache usage, GPU utilization, VRAM, cost per 1K tokens
+- Trend arrows showing whether each metric is improving or degrading
+- Health status line (HEALTHY, KV CACHE PRESSURE, QUEUE BUILDING, etc.)
 
-The long-term goal is closed-loop optimization: not just showing you the problem, but safely tuning your configs to fix it.
+## Getting started
 
-## Current status
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
-Early development. The terminal dashboard monitors a vLLM instance (mock data for now, real integration coming) and shows:
+# Run with fake data (no GPU needed)
+python -m src.throtl.main --mock
 
-- **Request throughput** -- running, queued, tokens/sec, batch utilization
-- **Latency percentiles** -- time to first token and time per output token at p50/p95/p99
-- **GPU health** -- KV cache pressure, utilization, VRAM, cost per 1K tokens
-- **Trend arrows** -- each key metric shows whether it's improving or degrading
-- **Health verdict** -- a single status line (HEALTHY, KV CACHE PRESSURE, QUEUE BUILDING, etc.) so you can glance and know if something needs attention
+# Or test the full HTTP pipeline locally
+python -m src.throtl.mock.fake_vllm_server  # terminal 1
+python -m src.throtl.main --url http://localhost:9100  # terminal 2
+```
 
 ## Project structure
 
 ```
 src/throtl/
-  mock/          - Simulated vLLM metrics for local development
-  collector/     - Metrics collection from real or mock sources
-  dashboard/     - Terminal-based metrics display
-tests/           - Tests
-docs/chats/      - Session logs for development continuity
+  mock/          - Mock data generator + fake vLLM HTTP server
+  collector/     - Prometheus parser, vLLM collector, mock collector
+  dashboard/     - Terminal UI
+  storage/       - SQLite history
+tests/           - 20 tests
+docs/chats/      - Dev session logs
 ```
 
-## Getting started
+## Roadmap
 
-```bash
-# Create a virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run with mock data (no GPU needed)
-python -m src.throtl.main --mock
-```
+- [x] Terminal dashboard with live metrics
+- [x] Health detection + trend arrows
+- [x] vLLM metrics scraper (Prometheus parser)
+- [x] SQLite history storage
+- [ ] Time-series view
+- [ ] Automated tuning recommendations
+- [ ] OpenTelemetry integration
+- [ ] Multi-backend support (Triton, TensorRT-LLM)
 
 ## Requirements
 
-- Python 3.9+
-- No GPU required for development (mock mode)
+Python 3.9+. No GPU needed for development.
 
 ## License
 
