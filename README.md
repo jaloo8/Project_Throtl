@@ -11,6 +11,7 @@ Eventually this will do closed-loop optimization (auto-tuning configs), but righ
 - KV cache usage, GPU utilization, VRAM, cost per 1K tokens
 - Trend arrows showing whether each metric is improving or degrading
 - Health status line (HEALTHY, KV CACHE PRESSURE, QUEUE BUILDING, etc.)
+- Tuning recommendations with config hints (e.g., "increase max_num_seqs")
 
 ## Getting started
 
@@ -32,10 +33,11 @@ python -m src.throtl.main --url http://localhost:9100  # terminal 2
 ```
 src/throtl/
   mock/          - Mock data generator + fake vLLM HTTP server
-  collector/     - Prometheus parser, vLLM collector, mock collector
+  collector/     - Prometheus parser, vLLM collector, GPU monitor (NVML)
+  engine/        - Recommendation engine
   dashboard/     - Terminal UI
   storage/       - SQLite history
-tests/           - 20 tests
+tests/           - 35 tests
 docs/chats/      - Dev session logs
 ```
 
@@ -47,21 +49,20 @@ docs/chats/      - Dev session logs
 - [x] vLLM metrics scraper (Prometheus text parser + HTTP collector)
 - [x] Fake vLLM server for end-to-end testing without a GPU
 - [x] SQLite storage for metrics history
+- [x] NVML integration for GPU utilization, VRAM, temperature (auto-detected)
+- [x] Recommendation engine with config hints
 
 ### Next up -- real hardware validation
 
 - [ ] Test on a real GPU with vLLM serving Llama 3 8B
-- [ ] Add NVML integration (`pynvml`) for GPU utilization, VRAM, temperature
 - [ ] Validate Prometheus parser against actual vLLM output (not just fake server)
+- [ ] Tune recommendation thresholds against real workloads
 
-### Then -- insight engine
+### Then -- deeper insights
 
-The jump from "here are your numbers" to "here's what to do about them."
-
-- [ ] First automated recommendation (e.g., "batch utilization is 69% with no queue -- increase max_num_seqs")
-- [ ] KV cache pressure alerts with suggested actions
 - [ ] Config diff: show what a change would do before applying it
 - [ ] Before/after snapshots so users can measure impact of a change
+- [ ] More recommendation rules as we learn from real usage
 
 ### Later -- community and multi-backend
 

@@ -2,6 +2,9 @@
 Collector for a live vLLM server. Scrapes /metrics and maps
 the Prometheus output into InferenceSnapshot. Missing metrics
 (which vary by vLLM version) default to zero.
+
+When running on a machine with an NVIDIA GPU, also pulls utilization
+and VRAM stats via NVML. Falls back to zeros on machines without one.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ from typing import Optional
 import httpx
 
 from src.throtl.collector.base import MetricsCollector
+from src.throtl.collector.gpu_stats import GPUMonitor
 from src.throtl.collector.prometheus_parser import (
     get_counter,
     get_gauge,
@@ -28,6 +32,7 @@ class VLLMCollector(MetricsCollector):
         base_url: str,
         gpu_cost_per_hour: float = 1.0,
         timeout_seconds: float = 5.0,
+        gpu_index: int = 0,
     ):
         self._metrics_url = base_url.rstrip("/")
         if not self._metrics_url.endswith("/metrics"):
@@ -36,6 +41,7 @@ class VLLMCollector(MetricsCollector):
         self._gpu_cost_per_hour = gpu_cost_per_hour
         self._timeout = timeout_seconds
         self._client = httpx.Client(timeout=self._timeout)
+        self._gpu = GPUMonitor(device_index=gpu_index)
         self._prev_prompt_tokens: Optional[float] = None
         self._prev_gen_tokens: Optional[float] = None
 
@@ -66,12 +72,15 @@ class VLLMCollector(MetricsCollector):
         tbt_p95 = get_histogram_percentile(families, "vllm:time_per_output_token_seconds", 0.95) or 0
         tbt_p99 = get_histogram_percentile(families, "vllm:time_per_output_token_seconds", 0.99) or 0
 
-        # vLLM doesn't expose batch size or GPU utilization directly --
-        # we estimate batch from running requests and leave GPU util at 0
-        # until we add NVML integration.
+        # vLLM doesn't expose batch size directly -- estimate from running requests
         avg_batch_size = float(requests_running)
-        # Rough max batch size guess -- will be configurable later
-        max_batch_size = 16
+        max_batch_size = 16  # will be configurable later
+
+        # Pull GPU stats from NVML if available, otherwise zeros
+        gpu_stats = self._gpu.read()
+        gpu_util = gpu_stats.utilization_percent if gpu_stats else 0
+        gpu_mem_used = gpu_stats.memory_used_gb if gpu_stats else 0
+        gpu_mem_total = gpu_stats.memory_total_gb if gpu_stats else 0
 
         # Cost estimate
         tokens_per_hour = max(1, tokens_per_second * 3600)
@@ -81,7 +90,7 @@ class VLLMCollector(MetricsCollector):
             timestamp=datetime.now(),
             requests_running=requests_running,
             requests_waiting=requests_waiting,
-            requests_completed=0,  # vLLM doesn't expose a simple completed counter
+            requests_completed=0,
             prompt_tokens_total=int(prompt_tokens),
             generation_tokens_total=int(gen_tokens),
             tokens_per_second=tokens_per_second,
@@ -92,9 +101,9 @@ class VLLMCollector(MetricsCollector):
             time_per_output_token_p95=tbt_p95,
             time_per_output_token_p99=tbt_p99,
             gpu_cache_usage_percent=cache_usage,
-            gpu_memory_used_gb=0,  # not available from /metrics, needs NVML
-            gpu_memory_total_gb=0,
-            gpu_utilization_percent=0,
+            gpu_memory_used_gb=gpu_mem_used,
+            gpu_memory_total_gb=gpu_mem_total,
+            gpu_utilization_percent=gpu_util,
             avg_batch_size=avg_batch_size,
             max_batch_size=max_batch_size,
             estimated_cost_per_1k_tokens=cost_per_1k,
@@ -105,3 +114,4 @@ class VLLMCollector(MetricsCollector):
 
     def close(self):
         self._client.close()
+        self._gpu.close()

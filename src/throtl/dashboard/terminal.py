@@ -14,6 +14,7 @@ from rich.layout import Layout
 from rich.text import Text
 
 from src.throtl.collector.base import MetricsCollector
+from src.throtl.engine.recommendations import Recommendation, analyze
 from src.throtl.metrics import InferenceSnapshot
 from src.throtl.storage.sqlite_store import MetricsStore
 
@@ -209,9 +210,14 @@ def build_display(
         cost_trend,
     )
 
+    # -- Recommendations panel --
+    recs = analyze(current=snapshot, history=list(history))
+    rec_panel = _build_rec_panel(recs)
+
     layout.split_column(
         Layout(Panel(header, border_style="blue"), size=4),
         Layout(name="body"),
+        Layout(rec_panel, size=max(5, min(len(recs) + 3, 10))),
         Layout(Panel(Text("  Press Ctrl+C to stop", style="dim"), border_style="dim"), size=3),
     )
 
@@ -222,6 +228,35 @@ def build_display(
     )
 
     return layout
+
+
+_SEVERITY_STYLE = {
+    "critical": "bold red",
+    "warning": "yellow",
+    "info": "dim",
+}
+
+
+def _build_rec_panel(recs: list[Recommendation]) -> Panel:
+    """Build a panel showing current tuning recommendations."""
+    if not recs:
+        content = Text("  No issues detected", style="bold green")
+        return Panel(content, title="Recommendations", border_style="green")
+
+    table = Table(show_header=False, expand=True, padding=(0, 1))
+    table.add_column("sev", width=8)
+    table.add_column("recommendation")
+
+    for rec in recs[:6]:  # cap at 6 to keep the panel compact
+        sev_style = _SEVERITY_STYLE.get(rec.severity, "dim")
+        label = f"[{sev_style}]{rec.severity.upper()}[/{sev_style}]"
+        detail = rec.title
+        if rec.config_hint:
+            detail += f"  [dim]({rec.config_hint})[/dim]"
+        table.add_row(label, detail)
+
+    border = "red" if recs[0].severity == "critical" else "yellow"
+    return Panel(table, title=f"Recommendations ({len(recs)})", border_style=border)
 
 
 def run_dashboard(
@@ -242,10 +277,25 @@ def run_dashboard(
     console.print()
     time.sleep(1)
 
+    consecutive_errors = 0
+
     with Live(console=console, refresh_per_second=1, screen=True) as live:
         try:
             while True:
-                snapshot = collector.collect()
+                try:
+                    snapshot = collector.collect()
+                    consecutive_errors = 0
+                except Exception as e:
+                    consecutive_errors += 1
+                    if consecutive_errors >= 5:
+                        console.print(f"\n[bold red]Lost connection after 5 retries: {e}[/bold red]")
+                        break
+                    # Show error in dashboard but keep trying
+                    error_text = Text(f"  Connection error (retry {consecutive_errors}/5): {e}", style="bold red")
+                    live.update(Panel(error_text, border_style="red"))
+                    time.sleep(refresh_interval)
+                    continue
+
                 history.append(snapshot)
                 if store:
                     store.save(snapshot)
