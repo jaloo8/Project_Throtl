@@ -1,14 +1,14 @@
 """Tests for the recommendation engine."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
-from src.throtl.engine.recommendations import Recommendation, analyze
-from src.throtl.metrics import InferenceSnapshot
+from throtl.engine.recommendations import Recommendation, analyze
+from throtl.metrics import InferenceSnapshot
 
 
 def _make_snapshot(**overrides) -> InferenceSnapshot:
     defaults = dict(
-        timestamp=datetime.now(),
+        timestamp=datetime.now(timezone.utc),
         requests_running=8,
         requests_waiting=0,
         requests_completed=100,

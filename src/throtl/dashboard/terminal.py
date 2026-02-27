@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from collections import deque
 from typing import Optional
+
+log = logging.getLogger(__name__)
 
 from rich.console import Console
 from rich.live import Live
@@ -13,10 +16,11 @@ from rich.panel import Panel
 from rich.layout import Layout
 from rich.text import Text
 
-from src.throtl.collector.base import MetricsCollector
-from src.throtl.engine.recommendations import Recommendation, analyze
-from src.throtl.metrics import InferenceSnapshot
-from src.throtl.storage.sqlite_store import MetricsStore
+from throtl import __version__
+from throtl.collector.base import MetricsCollector
+from throtl.engine.recommendations import Recommendation, analyze
+from throtl.metrics import InferenceSnapshot
+from throtl.storage.sqlite_store import MetricsStore
 
 
 # How many snapshots to keep for trend comparison
@@ -114,7 +118,7 @@ def build_display(
     prev = _get_lookback(history)
 
     status_text, status_style = _evaluate_health(snapshot)
-    header = Text(f"  throtl  |  {source_name}", style="bold white on blue")
+    header = Text(f"  throtl v{__version__}  |  {source_name}", style="bold white on blue")
     header.append(f"\n  {snapshot.timestamp.strftime('%Y-%m-%d %H:%M:%S')}  ", style="dim")
     header.append(f"  STATUS: {status_text}", style=status_style)
 
@@ -269,7 +273,8 @@ def run_dashboard(
     source_name = collector.name()
     history: deque[InferenceSnapshot] = deque(maxlen=HISTORY_SIZE)
 
-    console.print(f"\n[bold]Starting Throtl dashboard...[/bold]")
+    log.info("Starting dashboard: source=%s, refresh=%.1fs", source_name, refresh_interval)
+    console.print(f"\n[bold]Starting Throtl v{__version__}...[/bold]")
     console.print(f"Source: {source_name}")
     console.print(f"Refresh: every {refresh_interval}s")
     if store:
@@ -287,7 +292,9 @@ def run_dashboard(
                     consecutive_errors = 0
                 except Exception as e:
                     consecutive_errors += 1
+                    log.warning("Collection failed (attempt %d/5): %s", consecutive_errors, e)
                     if consecutive_errors >= 5:
+                        log.error("Lost connection after 5 retries, exiting")
                         console.print(f"\n[bold red]Lost connection after 5 retries: {e}[/bold red]")
                         break
                     # Show error in dashboard but keep trying
@@ -310,3 +317,47 @@ def run_dashboard(
         console.print(f"\n[dim]Dashboard stopped. {count} snapshots recorded.[/dim]")
     else:
         console.print("\n[dim]Dashboard stopped.[/dim]")
+
+
+def run_jsonl(
+    collector: MetricsCollector,
+    refresh_interval: float = 2.0,
+    store: Optional[MetricsStore] = None,
+):
+    """Non-interactive output mode: prints one JSON object per snapshot per line.
+
+    Designed for Docker, CI pipelines, and log aggregators where a Rich TUI
+    isn't available.
+    """
+    import json
+    import sys
+
+    source_name = collector.name()
+    log.info("Starting JSONL output: source=%s, refresh=%.1fs", source_name, refresh_interval)
+
+    consecutive_errors = 0
+
+    try:
+        while True:
+            try:
+                snapshot = collector.collect()
+                consecutive_errors = 0
+            except Exception as e:
+                consecutive_errors += 1
+                log.warning("Collection failed (attempt %d/5): %s", consecutive_errors, e)
+                if consecutive_errors >= 5:
+                    log.error("Lost connection after 5 retries, exiting")
+                    break
+                time.sleep(refresh_interval)
+                continue
+
+            if store:
+                store.save(snapshot)
+
+            record = snapshot.summary()
+            record["source"] = source_name
+            sys.stdout.write(json.dumps(record) + "\n")
+            sys.stdout.flush()
+            time.sleep(refresh_interval)
+    except KeyboardInterrupt:
+        pass

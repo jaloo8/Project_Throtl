@@ -9,8 +9,8 @@ import threading
 import time
 from http.server import HTTPServer
 
-from src.throtl.collector.vllm_collector import VLLMCollector
-from src.throtl.mock.fake_vllm_server import _MetricsHandler
+from throtl.collector.vllm_collector import VLLMCollector
+from throtl.mock.fake_vllm_server import _MetricsHandler
 
 
 def _start_test_server(port: int) -> HTTPServer:

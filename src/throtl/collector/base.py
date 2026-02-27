@@ -5,7 +5,7 @@ implements this so the dashboard doesn't care where data comes from.
 
 from abc import ABC, abstractmethod
 
-from src.throtl.metrics import InferenceSnapshot
+from throtl.metrics import InferenceSnapshot
 
 
 class MetricsCollector(ABC):

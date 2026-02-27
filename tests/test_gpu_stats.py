@@ -1,6 +1,6 @@
 """Tests for GPUMonitor graceful fallback (no GPU on this machine)."""
 
-from src.throtl.collector.gpu_stats import GPUMonitor
+from throtl.collector.gpu_stats import GPUMonitor
 
 
 def test_gpu_monitor_unavailable_on_mac():

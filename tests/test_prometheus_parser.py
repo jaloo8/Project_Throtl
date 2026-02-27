@@ -1,6 +1,6 @@
 """Tests for the Prometheus text format parser."""
 
-from src.throtl.collector.prometheus_parser import (
+from throtl.collector.prometheus_parser import (
     get_counter,
     get_gauge,
     get_histogram_percentile,

@@ -3,7 +3,7 @@ Metric definitions that mirror vLLM's /metrics endpoint (Prometheus format),
 plus GPU-level signals we'll add when running on real hardware.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 
@@ -41,8 +41,14 @@ class InferenceSnapshot:
     avg_batch_size: float = 0.0
     max_batch_size: int = 0
 
-    # Rough cost estimate based on GPU hourly rate
+    # Cost tracking
+    gpu_cost_per_hour: float = 1.0
     estimated_cost_per_1k_tokens: float = 0.0
+    cumulative_cost_usd: float = 0.0
+
+    # SLA compliance (fraction of requests meeting latency target, 0.0-1.0)
+    sla_target_ttft_ms: float = 200.0
+    sla_compliance_percent: float = 1.0
 
     def summary(self) -> dict:
         """Flat dict with display-friendly units (ms, %, etc)."""
@@ -58,4 +64,6 @@ class InferenceSnapshot:
             "gpu_util_pct": round(self.gpu_utilization_percent * 100, 1),
             "avg_batch_size": round(self.avg_batch_size, 1),
             "cost_per_1k_tokens": round(self.estimated_cost_per_1k_tokens, 4),
+            "cumulative_cost_usd": round(self.cumulative_cost_usd, 4),
+            "sla_compliance_pct": round(self.sla_compliance_percent * 100, 1),
         }

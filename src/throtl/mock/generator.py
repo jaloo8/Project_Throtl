@@ -8,21 +8,24 @@ with a 24GB GPU.
 
 import math
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 
-from src.throtl.metrics import InferenceSnapshot
+from throtl.metrics import InferenceSnapshot
 
 
 class MockVLLMServer:
 
-    def __init__(self, seed: int = 42):
+    def __init__(self, seed: int = 42, gpu_cost_per_hour: float = 1.0):
         self._rng = random.Random(seed)
         self._tick = 0
         self._total_prompt_tokens = 0
         self._total_gen_tokens = 0
         self._total_completed = 0
+        self._cumulative_cost = 0.0
+        self.gpu_cost_per_hour = gpu_cost_per_hour
         self.gpu_memory_total_gb = 24.0
         self.model_memory_gb = 8.5  # ~8B params in fp16
+        self.sla_target_ttft_ms = 200.0
 
     def snapshot(self) -> InferenceSnapshot:
         """Generate one reading, advancing the simulation clock."""
@@ -70,13 +73,20 @@ class MockVLLMServer:
         tbt_p95 = tbt_p50 * self._rng.uniform(1.5, 2.0)
         tbt_p99 = tbt_p95 * self._rng.uniform(1.2, 1.5)
 
-        # Rough cost: assume $1/hr GPU, spread across tokens generated
-        hourly_cost = 1.0
+        # Cost: configurable GPU rate spread across tokens generated
         tokens_per_hour = tokens_per_second * 3600
-        cost_per_1k = (hourly_cost / max(1, tokens_per_hour)) * 1000
+        cost_per_1k = (self.gpu_cost_per_hour / max(1, tokens_per_hour)) * 1000
+
+        # Each tick represents ~2 seconds of wall time
+        tick_cost = self.gpu_cost_per_hour / 1800
+        self._cumulative_cost += tick_cost
+
+        # SLA compliance: approximate fraction of requests meeting TTFT target
+        target_s = self.sla_target_ttft_ms / 1000.0
+        sla_compliance = max(0.0, min(1.0, 1.0 - (ttft_p95 / target_s) * 0.3))
 
         return InferenceSnapshot(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             requests_running=active_requests,
             requests_waiting=waiting,
             requests_completed=self._total_completed,
@@ -95,5 +105,9 @@ class MockVLLMServer:
             gpu_utilization_percent=gpu_util,
             avg_batch_size=float(batch_size),
             max_batch_size=16,
+            gpu_cost_per_hour=self.gpu_cost_per_hour,
             estimated_cost_per_1k_tokens=cost_per_1k,
+            cumulative_cost_usd=self._cumulative_cost,
+            sla_target_ttft_ms=self.sla_target_ttft_ms,
+            sla_compliance_percent=sla_compliance,
         )

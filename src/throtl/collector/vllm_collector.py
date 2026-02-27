@@ -9,20 +9,23 @@ and VRAM stats via NVML. Falls back to zeros on machines without one.
 
 from __future__ import annotations
 
-from datetime import datetime
+import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
 
-from src.throtl.collector.base import MetricsCollector
-from src.throtl.collector.gpu_stats import GPUMonitor
-from src.throtl.collector.prometheus_parser import (
+log = logging.getLogger(__name__)
+
+from throtl.collector.base import MetricsCollector
+from throtl.collector.gpu_stats import GPUMonitor
+from throtl.collector.prometheus_parser import (
     get_counter,
     get_gauge,
     get_histogram_percentile,
     parse_prometheus_text,
 )
-from src.throtl.metrics import InferenceSnapshot
+from throtl.metrics import InferenceSnapshot
 
 
 class VLLMCollector(MetricsCollector):
@@ -87,7 +90,7 @@ class VLLMCollector(MetricsCollector):
         cost_per_1k = (self._gpu_cost_per_hour / tokens_per_hour) * 1000
 
         return InferenceSnapshot(
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
             requests_running=requests_running,
             requests_waiting=requests_waiting,
             requests_completed=0,

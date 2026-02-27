@@ -7,8 +7,11 @@ so the rest of the app works fine on machines without one.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
+
+log = logging.getLogger(__name__)
 
 try:
     import pynvml
@@ -36,14 +39,16 @@ class GPUMonitor:
         self._initialized = False
 
         if not _NVML_AVAILABLE:
+            log.debug("pynvml not installed, GPU monitoring disabled")
             return
 
         try:
             pynvml.nvmlInit()
             self._handle = pynvml.nvmlDeviceGetHandleByIndex(device_index)
             self._initialized = True
+            log.info("NVML initialized on device %d", device_index)
         except pynvml.NVMLError:
-            pass
+            log.debug("NVML init failed (no compatible GPU), continuing without GPU stats")
 
     @property
     def available(self) -> bool:

@@ -1,14 +1,17 @@
 """
 Fake vLLM /metrics server for testing without a GPU.
 
-    python -m src.throtl.mock.fake_vllm_server
-    python -m src.throtl.main --url http://localhost:9100
+    python -m throtl.mock.fake_vllm_server
+    throtl --url http://localhost:9100
 """
 
 from __future__ import annotations
 
+import logging
 import math
 import random
+
+log = logging.getLogger(__name__)
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
@@ -153,15 +156,15 @@ class _MetricsHandler(BaseHTTPRequestHandler):
 
 def run_fake_server(host: str = "127.0.0.1", port: int = 9100):
     server = HTTPServer((host, port), _MetricsHandler)
-    print(f"Fake vLLM metrics server running at http://{host}:{port}/metrics")
-    print("Press Ctrl+C to stop.\n")
+    log.info("Fake vLLM metrics server running at http://%s:%d/metrics", host, port)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     server.server_close()
-    print("\nServer stopped.")
+    log.info("Server stopped.")
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     run_fake_server()

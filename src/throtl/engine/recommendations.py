@@ -1,6 +1,8 @@
 """
 Recommendation engine for vLLM tuning.
 
+Copyright (c) 2026 JL -- see NOTICE and LICENSE files.
+
 Looks at a recent window of snapshots and produces actionable suggestions
 based on known relationships between metrics. Each rule encodes something
 a GPU performance engineer would notice and suggest.
@@ -11,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional
 
-from src.throtl.metrics import InferenceSnapshot
+from throtl.metrics import InferenceSnapshot
 
 
 @dataclass

@@ -1,0 +1,10 @@
+Throtl
+Copyright (c) 2026 JL
+
+This product includes software developed by the Throtl project
+(https://github.com/jloo/Project_Throtl).
+
+The recommendation engine, config advisor, and comparison logic in the
+engine/ directory represent original work in LLM inference optimization.
+
+Licensed under the terms described in the LICENSE file.

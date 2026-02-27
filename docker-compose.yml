@@ -1,0 +1,36 @@
+# Run the full pipeline: fake vLLM server + Throtl dashboard
+#
+#   docker compose up                  JSON lines output (non-interactive)
+#   docker compose up throtl-tui       Rich TUI (needs --tty)
+#
+# Mock mode (no fake server):
+#
+#   docker compose --profile mock up throtl-mock
+
+services:
+  fake-vllm:
+    build: .
+    entrypoint: ["python", "-m", "throtl.mock.fake_vllm_server"]
+    ports:
+      - "9100:9100"
+
+  throtl:
+    build: .
+    command: ["--url", "http://fake-vllm:9100", "--no-store", "--output", "jsonl"]
+    depends_on:
+      - fake-vllm
+
+  throtl-tui:
+    build: .
+    command: ["--url", "http://fake-vllm:9100", "--no-store"]
+    depends_on:
+      - fake-vllm
+    tty: true
+    profiles:
+      - tui
+
+  throtl-mock:
+    build: .
+    command: ["--mock", "--no-store", "--output", "jsonl"]
+    profiles:
+      - mock

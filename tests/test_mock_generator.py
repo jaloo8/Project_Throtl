@@ -1,6 +1,6 @@
 """Basic sanity checks for the mock metrics generator."""
 
-from src.throtl.mock.generator import MockVLLMServer
+from throtl.mock.generator import MockVLLMServer
 
 
 def test_snapshot_returns_valid_data():
